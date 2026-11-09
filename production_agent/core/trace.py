@@ -1,0 +1,207 @@
+# -*- coding: utf-8 -*-
+"""
+core/trace.py: 全息可观测性与分布式 Trace 级联
+--------------------------------------------
+对应推文第 010 篇《可观测平面：trace、span、成本归因到具体 Agent》。
+提供端到端的 TraceId 生成、父子 Span 级联透传、多节点耗时与 Token 统计，
+并支持在控制台直接输出美观的彩色调用链调用树（使用 rich 或 ASCII）。
+"""
+
+import time
+import uuid
+from typing import Dict, List, Optional, Any
+from contextlib import contextmanager
+
+try:
+    from rich.console import Console
+    from rich.tree import Tree
+    from rich.table import Table
+    HAS_RICH = True
+except ImportError:
+    HAS_RICH = False
+
+
+# 标准模型单价估算（每 1000 Token 美元数）
+MODEL_PRICE_PER_1K = {
+    "default": {"prompt": 0.0005, "completion": 0.0015},
+    "gpt-4o-mini": {"prompt": 0.00015, "completion": 0.0006},
+    "gpt-4o": {"prompt": 0.0025, "completion": 0.01},
+    "deepseek-chat": {"prompt": 0.00014, "completion": 0.00028},
+    "deepseek-reasoner": {"prompt": 0.00055, "completion": 0.00219},
+}
+
+
+class SpanRecord:
+    def __init__(
+        self,
+        span_id: str,
+        trace_id: str,
+        agent_name: str,
+        action: str,
+        parent_span_id: Optional[str] = None
+    ):
+        self.span_id = span_id
+        self.trace_id = trace_id
+        self.agent_name = agent_name
+        self.action = action
+        self.parent_span_id = parent_span_id
+        self.start_time = time.time()
+        self.end_time: Optional[float] = None
+        self.duration_seconds: float = 0.0
+        self.status = "RUNNING"
+        self.prompt_tokens: int = 0
+        self.completion_tokens: int = 0
+        self.cost_usd: float = 0.0
+        self.metadata: Dict[str, Any] = {}
+        self.error_message: Optional[str] = None
+
+    def finish(self, status: str = "SUCCESS", error: Optional[str] = None):
+        self.end_time = time.time()
+        self.duration_seconds = self.end_time - self.start_time
+        self.status = status
+        self.error_message = error
+
+    def add_tokens(self, prompt_tokens: int, completion_tokens: int, model_name: str = "default"):
+        self.prompt_tokens += prompt_tokens
+        self.completion_tokens += completion_tokens
+        price = MODEL_PRICE_PER_1K.get(model_name, MODEL_PRICE_PER_1K["default"])
+        call_cost = (prompt_tokens / 1000.0 * price["prompt"]) + (completion_tokens / 1000.0 * price["completion"])
+        self.cost_usd += call_cost
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "span_id": self.span_id,
+            "trace_id": self.trace_id,
+            "parent_span_id": self.parent_span_id,
+            "agent_name": self.agent_name,
+            "action": self.action,
+            "status": self.status,
+            "duration_seconds": round(self.duration_seconds, 3),
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.prompt_tokens + self.completion_tokens,
+            "cost_usd": round(self.cost_usd, 6),
+            "error_message": self.error_message,
+            "metadata": self.metadata
+        }
+
+
+class Tracer:
+    """全局单例 Tracer：管理全链路 Span 级联与性能指标"""
+    def __init__(self):
+        self.traces: Dict[str, List[SpanRecord]] = {}
+        self._current_trace_id: Optional[str] = None
+        self._current_span_stack: List[str] = []
+
+    def start_trace(self, trace_id: Optional[str] = None) -> str:
+        tid = trace_id or f"tr-{uuid.uuid4().hex[:10]}"
+        self._current_trace_id = tid
+        self.traces[tid] = []
+        self._current_span_stack = []
+        return tid
+
+    @property
+    def current_trace_id(self) -> str:
+        if not self._current_trace_id:
+            return self.start_trace()
+        return self._current_trace_id
+
+    @property
+    def current_parent_span_id(self) -> Optional[str]:
+        return self._current_span_stack[-1] if self._current_span_stack else None
+
+    @contextmanager
+    def span(self, agent_name: str, action: str):
+        span_id = f"sp-{uuid.uuid4().hex[:8]}"
+        trace_id = self.current_trace_id
+        parent_id = self.current_parent_span_id
+
+        record = SpanRecord(
+            span_id=span_id,
+            trace_id=trace_id,
+            agent_name=agent_name,
+            action=action,
+            parent_span_id=parent_id
+        )
+        self.traces[trace_id].append(record)
+        self._current_span_stack.append(span_id)
+
+        try:
+            yield record
+            if record.status == "RUNNING":
+                record.finish("SUCCESS")
+        except Exception as e:
+            record.finish("FAILED", str(e))
+            raise e
+        finally:
+            if self._current_span_stack and self._current_span_stack[-1] == span_id:
+                self._current_span_stack.pop()
+
+    def get_spans(self, trace_id: Optional[str] = None) -> List[SpanRecord]:
+        tid = trace_id or self.current_trace_id
+        return self.traces.get(tid, [])
+
+    def print_trace_summary(self, trace_id: Optional[str] = None):
+        """打印全息可观测调用树与成本归因表格"""
+        tid = trace_id or self.current_trace_id
+        spans = self.get_spans(tid)
+        if not spans:
+            print(f"[Tracer] 没有找到 Trace: {tid} 的记录")
+            return
+
+        total_tokens = sum(s.prompt_tokens + s.completion_tokens for s in spans)
+        total_cost = sum(s.cost_usd for s in spans)
+        total_latency = sum(s.duration_seconds for s in spans if not s.parent_span_id) or max(s.duration_seconds for s in spans)
+
+        if HAS_RICH:
+            console = Console()
+            console.print(f"\n[bold cyan]════════════════════ 全链路可观测 Trace: {tid} ════════════════════[/bold cyan]")
+            
+            # 渲染树
+            tree = Tree(f"[bold yellow]Trace Root[/bold yellow] (耗时: {total_latency:.2f}s | 总Token: {total_tokens} | 预估成本: ${total_cost:.5f})")
+            span_map = {s.span_id: s for s in spans}
+            tree_nodes = {}
+
+            for s in spans:
+                label = f"[bold green]{s.agent_name}[/bold green] -> [white]{s.action}[/white] | [dim]{s.duration_seconds:.2f}s | {s.prompt_tokens + s.completion_tokens} Tok | ${s.cost_usd:.5f}[/dim]"
+                if s.status != "SUCCESS":
+                    label += f" [bold red]({s.status}: {s.error_message or ''})[/bold red]"
+                
+                if not s.parent_span_id or s.parent_span_id not in span_map:
+                    node = tree.add(label)
+                    tree_nodes[s.span_id] = node
+                else:
+                    parent_node = tree_nodes.get(s.parent_span_id, tree)
+                    node = parent_node.add(label)
+                    tree_nodes[s.span_id] = node
+
+            console.print(tree)
+
+            # 渲染成本归因表格
+            table = Table(title="Agent 节点成本与资源归因看板 (Cost Attribution)")
+            table.add_column("Agent 节点", style="cyan")
+            table.add_column("调用动作", style="magenta")
+            table.add_column("耗时 (s)", justify="right")
+            table.add_column("Token 占比", justify="right")
+            table.add_column("预估开销 (USD)", justify="right", style="green")
+            table.add_column("状态", justify="center")
+
+            for s in spans:
+                tok = s.prompt_tokens + s.completion_tokens
+                pct = f"{(tok / total_tokens * 100):.1f}%" if total_tokens > 0 else "0%"
+                status_style = "[green]SUCCESS[/green]" if s.status == "SUCCESS" else f"[red]{s.status}[/red]"
+                table.add_row(s.agent_name, s.action, f"{s.duration_seconds:.2f}", f"{tok} ({pct})", f"${s.cost_usd:.5f}", status_style)
+
+            console.print(table)
+            console.print(f"[bold cyan]═══════════════════════════════════════════════════════════════════════[/bold cyan]\n")
+        else:
+            # ASCII 简单降级打印
+            print(f"\n==================== Trace: {tid} ====================")
+            print(f"端到端耗时: {total_latency:.2f}s | 总 Token: {total_tokens} | 预估开销: ${total_cost:.5f}")
+            for s in spans:
+                print(f"  [{s.status}] {s.agent_name} -> {s.action} | 耗时: {s.duration_seconds:.2f}s | Token: {s.prompt_tokens + s.completion_tokens} | ${s.cost_usd:.5f}")
+            print("========================================================\n")
+
+
+# 全局单例
+global_tracer = Tracer()
