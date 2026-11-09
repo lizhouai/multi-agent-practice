@@ -13,14 +13,15 @@
 
 ---
 
-## 核心定位：双轨演进
+## 核心定位：三轨演进
 
-本项目以企业级**「智能深度调研与竞品研报系统（DeepResearch Agentic System）」**为实战业务载体，分为两条递进主线：
+本项目以企业级**「智能深度调研与竞品研报系统（DeepResearch Agentic System）」**为实战业务载体，分为三条递进演进路线：
 
-| 模块目录 | 目标定位 | 核心覆盖范围 | 推荐耗时 |
+| 模块目录 | 目标定位 | 核心技术范式与覆盖范围 | 推荐耗时 |
 | :--- | :--- | :--- | :--- |
-| [`mini_agent/`](./mini_agent/) | **用最少代码跑通多 Agent 闭环** | 单文件原生 Python 实现；包含基础 Agent Loop、任务分解（Planner）、轻量并发子智能体（Fan-out）、结果汇聚（Fan-in）与基础 Token 统计。零框架依赖。 | 15 分钟上手 |
-| [`production_agent/`](./production_agent/) | **把多 Agent 推向工业级生产形态** | 模块化工业工程脚手架；包含混合编排拓扑、Pydantic 契约门禁、共享黑板状态机、仓壁熔断自愈、三维预算熔断器、全息 Trace 级联、非受信数据防火墙、逐跳切面归因评测与自动化消融实验。 | 深入实战 |
+| [`mini_agent/`](./mini_agent/) | **极简闭环** | 单文件原生 Python 实现；包含基础 Agent Loop、任务分解（Planner）、轻量并发子智能体（Fan-out）、结果汇聚（Fan-in）与基础 Token 统计。零框架依赖。 | 15 分钟上手 |
+| [`production_agent/`](./production_agent/) | **自研工业级微内核** | 模块化工业工程脚手架；包含混合编排拓扑、Pydantic 契约门禁、共享黑板状态机、仓壁熔断自愈、三维预算熔断器、全息 Trace 级联、非受信数据防火墙、断点续跑、逐跳切面归因评测与自动化消融实验。 | 深入实战 |
+| [`langgraph_agent/`](./langgraph_agent/) | **LangGraph 状态图标准范式** | 工业级主流框架对照实现；采用 LangGraph 1.0+ 的 `StateGraph`、`Send` API 动态 Fan-out、自定义 `evidence_reducer` 状态合并、条件反思回溯环路（Reflection）、原生 `interrupt()` 人工在回路双人审批闸门与 Checkpointer 断点续跑。 | 框架进阶 |
 
 ---
 
@@ -28,6 +29,7 @@
 
 - **[Mini Agent 极简实操手册](./mini_agent/README.md)**：不依赖复杂三方库，仅需一个 Python 文件，快速理解多 Agent 是如何从单 Agent 的工具调用演进出来的。
 - **[Production Agent 生产工程化实操手册](./production_agent/README.md)**：深入企业级微内核架构，理解真实生产中多 Agent 系统的稳定性防御、状态一致性、安全审批门禁与成本度量衡。
+- **[LangGraph Agent 状态图实操手册](./langgraph_agent/README.md)**：学习如何用业界主流的 LangGraph 图状态机、Send API 并发分发、反思条件边与原生 interrupt() 审批闸门实现同等级别的工业级鲁棒性。
 
 ---
 
@@ -44,18 +46,18 @@
 
 本项目与微信公众号**「灵机遣记」**的《多 Agent 工程实战系列》（全 10 篇）深度绑定并一一映射。推荐边看文章背后的工程判断，边运行对照源码：
 
-| 章节与推文主题 | 解决的工程痛点 | `production_agent` 核心代码映射 |
-| :--- | :--- | :--- |
-| **第 001 篇·单个 Agent 的天花板** | 什么时候才真的需要多 Agent？拆分的第一性原理与检查清单 | `mini_agent/mini_agent.py`<br>`core/topology.py`（单 Agent vs 多 Agent 分流） |
-| **第 002 篇·三种真正有效的分工方式** | 拒绝角色扮演虚假拆分；按能力域与数据/权限域做物理隔离 | `agent/search_agent.py`<br>`agent/doc_query_agent.py`<br>`agent/analyst_agent.py`<br>`core/security.py` |
-| **第 003 篇·编排拓扑到底怎么选** | 控制流放在哪？Pipeline / Router / Supervisor / 对等 Handoff | `core/topology.py`（四大拓扑控制器统一抽象） |
-| **第 004 篇·契约交付：把自然语言封进 schema** | 跨 Agent 传递信息拒绝模糊自然语言；强类型交接与回执 | `core/schema.py`（`HandoffPacket` / `HandoffReceipt`） |
-| **第 005 篇·上下文隔离与汇总** | 拆了之后为什么反而更糊涂？Fan-in 汇总时如何守住证据链 | `core/context.py`（上下文沙箱与证据卡片提取） |
-| **第 006 篇·共享状态：避免越聊越跑偏** | 记忆分叉与脏写；单一真相层、共享黑板与 Checkpoint 快照 | `core/state.py`（`EvidenceBoard`、版本乐观锁与快照） |
-| **第 007 篇·失败传播与自愈** | 一个节点崩溃如何不拖垮全链路；仓壁隔离与异构交叉核验 | `core/resilience.py`（结构化自愈、异构模型比对） |
-| **第 008 篇·算笔成本账** | 并行度悖论与 Token 爆炸；三维预算熔断器与细粒度归因 | `core/budget.py`（Token / 步数 / 挂钟时延三维熔断） |
-| **第 009 篇·评测：分工错了还是执行错了** | 拒绝端到端黑盒玄学；逐跳契约切面断言与五维失败归因 | `eval/evaluator.py`（逐跳切面校验、失败归因矩阵） |
-| **第 010 篇·生产落地：从 demo 到可运维** | 全链路 Trace 监控、非受信数据注入防火墙与双人审批闸门 | `core/trace.py`（全链路 Trace）<br>`core/security.py`（Two-Man Rule）<br>`eval/ablation.py`（下行消融回退） |
+| 章节与推文主题 | 解决的工程痛点 | 自研微内核 (`production_agent`) | LangGraph 标准实现 (`langgraph_agent`) |
+| :--- | :--- | :--- | :--- |
+| **第 001 篇·单个 Agent 的天花板** | 什么时候才真的需要多 Agent？拆分的第一性原理与检查清单 | `mini_agent.py`<br>`core/topology.py`（单 Agent vs 多 Agent 分流） | `nodes.py` (Planner 任务解构节点) |
+| **第 002 篇·三种真正有效的分工方式** | 拒绝角色扮演虚假拆分；按能力域与数据/权限域做物理隔离 | `agent/search_agent.py`<br>`agent/doc_query_agent.py`<br>`core/security.py` | `searcher_worker` (公网低权限)<br>`doc_query_worker` (内网高置信度) |
+| **第 003 篇·编排拓扑到底怎么选** | 控制流放在哪？Pipeline / Router / Supervisor / 对等 Handoff | `core/topology.py`（四大拓扑控制器统一抽象） | `graph.py` (Send API 动态分发)<br>`run_handoff_demo.py` (`Command(goto=...)`) |
+| **第 004 篇·契约交付：把自然语言封进 schema** | 跨 Agent 传递信息拒绝模糊自然语言；强类型交接与回执 | `core/schema.py`（`EvidenceCard` / `HandoffPacket`） | `state.py` (Pydantic 契约图通道) |
+| **第 005 篇·上下文隔离与汇总** | 拆了之后为什么反而更糊涂？Fan-in 汇总时如何守住证据链 | `core/context.py`（上下文沙箱与证据卡片提取） | `ContextFirewall` + `FanInAggregator` |
+| **第 006 篇·共享状态：避免越聊越跑偏** | 记忆分叉与脏写；单一真相层、共享黑板与 Checkpoint 快照 | `core/state.py`（`EvidenceBoard`、版本乐观锁与快照） | `state.py` (`evidence_reducer` 自动合并与去重) |
+| **第 007 篇·失败传播与自愈** | 一个节点崩溃如何不拖垮全链路；仓壁隔离与异构交叉核验 | `core/resilience.py`（结构化自愈、异构模型比对） | `route_after_fact_check` 条件反思打回环路 (Reflection) |
+| **第 008 篇·算笔成本账** | 并行度悖论与 Token 爆炸；三维预算熔断器与细粒度归因 | `core/budget.py`（Token / 步数 / 挂钟时延三维熔断） | `nodes.py` (节点进出线程预算隔离与熔断拦截) |
+| **第 009 篇·评测：分工错了还是执行错了** | 拒绝端到端黑盒玄学；逐跳契约切面断言与五维失败归因 | `eval/evaluator.py`（逐跳切面校验、失败归因矩阵） | `run_eval.py` (图状态映射机检、五维归因诊断) |
+| **第 010 篇·生产落地：从 demo 到可运维** | 全链路 Trace 监控、非受信数据注入防火墙与双人审批闸门 | `core/trace.py`（全链路 Trace）<br>`core/security.py`（Two-Man Rule）<br>`eval/ablation.py` | 原生 `interrupt()` 挂起<br>`Command(resume=...)` 恢复放行 |
 
 ---
 
@@ -112,16 +114,21 @@
 ```bash
 # 1. 克隆或进入项目
 cd multi-agent-practice
-
-# 2. 体验 Mini Agent
-cd mini_agent
 pip install -r requirements.txt
+
+# 2. 体验 Mini Agent (15分钟极简上手)
+cd mini_agent
 python mini_agent.py
 
-# 3. 体验 Production Agent
+# 3. 体验 Production Agent (自研微内核工业架构)
 cd ../production_agent
-pip install -r requirements.txt
 python run_pipeline.py
+
+# 4. 体验 LangGraph Agent (主流状态图与原生 interrupt 闸门)
+cd ../langgraph_agent
+python run_pipeline.py
+python run_handoff_demo.py
+
 ```
 
 ---
