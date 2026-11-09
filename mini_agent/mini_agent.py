@@ -18,6 +18,7 @@ import sys
 import json
 import time
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict
 
@@ -147,13 +148,22 @@ class MiniLLMClient:
     def _mock_response(self, system_prompt: str, user_prompt: str) -> tuple[str, int]:
         """内置离线 Mock 逻辑，保证零配置下代码立即可用"""
         if "规划专家" in system_prompt or "Planner" in system_prompt:
-            mock_plan = {
-                "subtasks": [
-                    {"id": "sub-1", "title": "硬件算力与芯片底座竞争格局", "focus_aspects": ["NPU算力", "芯片功耗"], "search_keywords": ["端侧", "芯片", "NPU"]},
-                    {"id": "sub-2", "title": "终端厂商生态落地与应用渗透", "focus_aspects": ["PC厂商", "系统集成"], "search_keywords": ["端侧", "PC", "落地"]},
-                    {"id": "sub-3", "title": "用户真实体验瓶颈与长效商业化挑战", "focus_aspects": ["杀手级应用", "ROI成本"], "search_keywords": ["通用", "挑战", "ROI"]}
-                ]
-            }
+            if "电池" in user_prompt or "固态" in user_prompt:
+                mock_plan = {
+                    "subtasks": [
+                        {"id": "sub-1", "title": "硫化物与聚合物技术路线竞争现状", "focus_aspects": ["技术路线", "电导率"], "search_keywords": ["电池", "路线"]},
+                        {"id": "sub-2", "title": "宁德时代与丰田商业化量产装车时间表", "focus_aspects": ["车企节点", "量产年份"], "search_keywords": ["电池", "量产"]},
+                        {"id": "sub-3", "title": "固-固界面阻抗衰减与制造成本瓶颈", "focus_aspects": ["成本倍数", "循环寿命"], "search_keywords": ["电池", "成本"]}
+                    ]
+                }
+            else:
+                mock_plan = {
+                    "subtasks": [
+                        {"id": "sub-1", "title": "硬件算力与芯片底座竞争格局", "focus_aspects": ["NPU算力", "芯片功耗"], "search_keywords": ["端侧", "芯片", "NPU"]},
+                        {"id": "sub-2", "title": "终端厂商生态落地与应用渗透", "focus_aspects": ["PC厂商", "系统集成"], "search_keywords": ["端侧", "PC", "落地"]},
+                        {"id": "sub-3", "title": "用户真实体验瓶颈与长效商业化挑战", "focus_aspects": ["杀手级应用", "ROI成本"], "search_keywords": ["通用", "挑战", "ROI"]}
+                    ]
+                }
             return json.dumps(mock_plan, ensure_ascii=False), 320
         elif "提取专家" in system_prompt:
             return "已成功从外部资料检索并核实该维度的关键论据与指标。", 180
@@ -263,10 +273,11 @@ class MiniResearchCoordinator:
         self.planner = PlannerAgent(self.llm)
         self.writer = AggregatorWriterAgent(self.llm)
 
-    def run(self, topic: str) -> ResearchReport:
+    def run(self, topic: str, parallel: bool = True) -> ResearchReport:
         global_start = time.time()
         print(f"\n=======================================================")
         print(f"[START] 开始执行深度调研任务: 《{topic}》")
+        print(f"模式: {'⚡ 并发子智能体 (Fan-out)' if parallel else '串行执行'}")
         print(f"=======================================================\n")
 
         # Step 1: 任务规划
@@ -278,17 +289,33 @@ class MiniResearchCoordinator:
         print()
 
         # Step 2: 并发/循环执行子智能体
-        print("[2/3] 唤起子智能体 (Subagents) 进行独立检索与证据提炼...")
+        print(f"[2/3] 唤起子智能体 (Subagents) 进行独立检索与证据提炼...")
         results: List[SubTaskResult] = []
         total_subagent_tokens = 0
 
-        for st in subtasks:
-            agent = ResearchSubAgent(st, self.llm)
-            print(f"   -> 正在执行 [{st.id}] {st.title} ...", end="", flush=True)
-            res = agent.execute()
-            results.append(res)
-            total_subagent_tokens += res.token_usage
-            print(f" 完成! (耗时: {res.elapsed_seconds:.2f}s, 提取论据: {len(res.evidences)}条)")
+        if parallel and len(subtasks) > 1:
+            def _run_sub(st: SubTask) -> SubTaskResult:
+                agent = ResearchSubAgent(st, self.llm)
+                return agent.execute()
+
+            with ThreadPoolExecutor(max_workers=len(subtasks)) as executor:
+                future_to_task = {executor.submit(_run_sub, st): st for st in subtasks}
+                for f in as_completed(future_to_task):
+                    res = f.result()
+                    results.append(res)
+                    total_subagent_tokens += res.token_usage
+                    print(f"   -> [{res.subtask_id}] {res.title} 完成! (耗时: {res.elapsed_seconds:.2f}s, 提取论据: {len(res.evidences)}条)")
+            # 排序保持原先规划顺序
+            subtask_order = {st.id: idx for idx, st in enumerate(subtasks)}
+            results.sort(key=lambda r: subtask_order.get(r.subtask_id, 0))
+        else:
+            for st in subtasks:
+                agent = ResearchSubAgent(st, self.llm)
+                print(f"   -> 正在执行 [{st.id}] {st.title} ...", end="", flush=True)
+                res = agent.execute()
+                results.append(res)
+                total_subagent_tokens += res.token_usage
+                print(f" 完成! (耗时: {res.elapsed_seconds:.2f}s, 提取论据: {len(res.evidences)}条)")
         print()
 
         # Step 3: 汇总合成
@@ -320,11 +347,20 @@ class MiniResearchCoordinator:
 def main():
     parser = argparse.ArgumentParser(description="Mini Agent: 最小多智能体深度调研系统")
     parser.add_argument("--topic", type=str, default="2026年端侧 AI 与 AI PC 的落地现状、主流玩家与核心挑战", help="深度调研主题")
+    parser.add_argument("--task-file", type=str, default=None, help="从 sample_tasks 目录下的 JSON 任务定义文件读取主题")
     parser.add_argument("--save", type=str, default="mini_report.md", help="保存研报的文件名")
+    parser.add_argument("--no-parallel", action="store_true", help="禁用并发，切为纯串行模式")
     args = parser.parse_args()
 
+    topic = args.topic
+    if args.task_file and os.path.exists(args.task_file):
+        with open(args.task_file, "r", encoding="utf-8") as f:
+            task_data = json.load(f)
+            topic = task_data.get("topic", topic)
+            print(f"[INFO] 已从任务文件加载主题: {args.task_file} -> 《{topic}》")
+
     coordinator = MiniResearchCoordinator()
-    report = coordinator.run(args.topic)
+    report = coordinator.run(topic, parallel=not args.no_parallel)
 
     output_path = os.path.join(os.path.dirname(__file__), args.save)
     with open(output_path, "w", encoding="utf-8") as f:

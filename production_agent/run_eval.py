@@ -28,6 +28,7 @@ from core.state import EvidenceBoard
 from core.schema import TaskStatus
 from agent.planner_agent import PlannerAgent
 from agent.search_agent import SearcherAgent
+from agent.doc_query_agent import DocQueryAgent
 from agent.analyst_agent import AnalystAgent
 from agent.fact_checker_agent import FactCheckerAgent
 from eval.evaluator import MultiAgentHopEvaluator
@@ -72,9 +73,11 @@ def run_batch_evaluation():
         board.register_tasks(tasks)
 
         searcher = SearcherAgent(budget)
+        doc_querier = DocQueryAgent(budget)
         for t in tasks:
             evs = searcher.execute_subtask(t, board)
-            board.update_task_status(t.id, TaskStatus.COMPLETED, [e.id for e in evs])
+            doc_evs = doc_querier.execute_subtask(t, board)
+            board.update_task_status(t.id, TaskStatus.COMPLETED, [e.id for e in evs + doc_evs])
 
         analyst = AnalystAgent(budget)
         synthesis = analyst.analyze_cross_evidence(board)
@@ -82,8 +85,8 @@ def run_batch_evaluation():
         fact_checker = FactCheckerAgent(budget)
         fact_checker.audit_synthesis(board, synthesis)
 
-        # 逐跳白盒切面评测
-        eval_report = MultiAgentHopEvaluator.evaluate_board_lifecycle(board)
+        # 针对该黄金用例规范执行靶向白盒切面评测与归因
+        eval_report = MultiAgentHopEvaluator.evaluate_case_assertions(board, case_spec=c, report_content=synthesis)
         score = eval_report["overall_score"]
         status = "✅ 合格" if eval_report["is_production_ready"] else "⚠️ 警告"
         failures = ", ".join([f["category"] for f in eval_report["failure_attributions"]]) or "无缺陷"

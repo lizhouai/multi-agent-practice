@@ -7,6 +7,7 @@ __pycache__/
 env/
 venv/
 .venv/
+.pyenv/
 ENV/
 build/
 develop-eggs/
@@ -34,8 +35,15 @@ wheels/
 *.swp
 *.swo
 
-# Project logs & run checkpoints
+# Project logs & run checkpoints & caches
 *.log
 checkpoints/
 outputs/
 .cache/
+.pytest_cache/
+
+# Generated output reports
+mini_report.md
+production_report.md
+battery_report.md
+

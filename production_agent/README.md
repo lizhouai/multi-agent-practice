@@ -22,6 +22,7 @@ production_agent/
 │   ├── base_agent.py              # 集成 Trace、预算熔断与 LLM 客户端的基类
 │   ├── planner_agent.py           # 任务 DAG 规划大脑 (第 1、3 篇)
 │   ├── search_agent.py            # 低权限沙箱检索与事实提取 (第 2、5、10 篇)
+│   ├── doc_query_agent.py         # 企业私有受信任知识库检索 (第 2 篇)
 │   ├── analyst_agent.py           # 多维证据交叉因果分析 (第 4、5 篇)
 │   ├── fact_checker_agent.py      # 独立异构交叉核验 (第 7 篇)
 │   └── writer_agent.py            # 研报排版总编与安全审批 (第 4、10 篇)
@@ -34,7 +35,7 @@ production_agent/
 │   ├── context.py                 # 槽位隔离防火墙与保真汇总 (第 5、10 篇)
 │   ├── resilience.py              # 仓壁隔离、自愈重试与交叉核查 (第 7 篇)
 │   ├── security.py                # 凭证最小化与 Two-Man Rule 闸门 (第 10 篇)
-│   └── topology.py                # Supervisor / Pipeline / Router 调度器 (第 3 篇)
+│   └── topology.py                # Supervisor / Pipeline / Router / Handoff 四大拓扑 (第 3 篇)
 │
 ├── eval/                          # 评测与消融工具集
 │   ├── eval_cases.jsonl           # 包含正常流、攻击注入、死循环等黄金测试集
@@ -42,8 +43,13 @@ production_agent/
 │   └── ablation.py                # 单 Agent vs 多 Agent 消融对比实验 (第 9、10 篇)
 │
 ├── tests/                         # 单元测试与边界故障注入测试
-│   └── test_core.py
-├── run_pipeline.py                # 一键运行完整深度调研系统
+│   ├── test_core.py               # 契约与熔断门禁基础测试
+│   ├── test_topology.py           # 四大编排拓扑控制流测试
+│   ├── test_resilience.py         # 仓壁隔离与自愈重试测试
+│   ├── test_concurrency.py        # 多线程并发安全与乐观锁碰撞测试
+│   ├── test_checkpoint.py         # 状态机快照与断点续跑测试
+│   └── test_evaluator.py          # 提示词注入与硬指标靶向断言测试
+├── run_pipeline.py                # 一键运行完整深度调研系统 (支持 --resume 断点续跑)
 ├── run_eval.py                    # 一键执行黄金用例回归评测与归因
 └── run_ablation.py                # 一键执行消融实验量化对比
 ```

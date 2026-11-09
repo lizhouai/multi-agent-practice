@@ -3,11 +3,15 @@
 agent/search_agent.py: 外部检索与事实提取智能体
 ---------------------------------------------
 对应推文第 002 篇《三种真正有效的分工方式》与第 010 篇《非受信数据插槽隔离》。
-运行在低权限沙箱中，负责调用外部检索工具，应用 ContextFirewall 对外部非受信内容
-进行物理隔离，提取符合 Pydantic 规范的 EvidenceCard 并写入 EvidenceBoard。
+运行在低权限沙箱中，支持可插拔检索适配器（Mock / DuckDuckGo / Tavily），
+应用 ContextFirewall 对外部非受信内容进行物理隔离，提取符合 Pydantic 规范的
+EvidenceCard 并写入 EvidenceBoard。
 """
 
+import os
 import json
+import urllib.request
+import urllib.parse
 from typing import List, Dict, Any, Optional
 from core.schema import TaskNode, EvidenceCard
 from core.state import EvidenceBoard
@@ -15,7 +19,7 @@ from core.context import ContextFirewall
 from agent.base_agent import BaseProductionAgent
 
 
-# 预置本地模拟检索知识库（支持离线稳定运行）
+# 预置本地高保真模拟检索知识库（支持全主题黄金测试集离线稳定运行）
 MOCK_SEARCH_KNOWLEDGE = {
     "算力": [
         {"claim": "2026年主流端侧 AI 芯片（高通骁龙 X2、苹果 M4、Intel Panther Lake）NPU 算力普遍达到 48-55 TOPS，支持 10B 级 MoE 模型端侧本地常驻推理。", "source": "Semiconductor Digest 2026", "metrics": {"NPU_TOPS": 50, "模型规模": "10B"}},
@@ -29,28 +33,80 @@ MOCK_SEARCH_KNOWLEDGE = {
         {"claim": "端侧硬件采购成本使单台 PC 均价上涨 18%-25%，且缺乏不可替代的跨时代杀手级应用，导致多数中小企业观望情绪严重。", "source": "Hardware Commercial Analysis", "metrics": {"成本上涨": "18%-25%"}},
         {"claim": "本地缓存与端侧敏感数据在跨智能体调用中的权限泄露成为 CISO 关注的首要安全隐患。", "source": "CyberSecurity Whitepaper 2026", "metrics": {"安全关切度": "No.1"}}
     ],
+    "电池": [
+        {"claim": "宁德时代与丰田汽车硫化物全固态电池中试线实测能量密度突破 500 Wh/kg，但电芯生产良品率目前仍低于 65%。", "source": "Global Battery Summit 2026", "metrics": {"能量密度": "500 Wh/kg", "良品率": "65%"}},
+        {"claim": "行业共识固态电池大规模装车商用节点由最初激进预期的 2025 年修正推迟至 2027-2030 年，当前主流方案仍为半固态过渡路线。", "source": "EV Battery Industry Roadmap", "metrics": {"量产年份": "2027-2030年", "技术形态": "半固态为主"}}
+    ],
+    "低空": [
+        {"claim": "中国民航局已针对多款载人 eVTOL 颁发标准适航认证（TC/AC），推动万亿元规模的立体低空出行新业态进入商业试运行阶段。", "source": "Aviation Industry Review 2026", "metrics": {"市场规模": "1.2万亿元", "适航认证": "TC完成"}},
+        {"claim": "截至 2026 年底，全国累计交付及意向订单突破 2500 架，城市起降场（Vertiport）与空域数字化管线正在加速铺设。", "source": "Low Altitude Economy Report", "metrics": {"订单交付": "2500架", "基础设施": "起降场铺设"}}
+    ],
     "通用": [
         {"claim": "多智能体工程落地关键在于构建严密的契约校验、全息 Trace 观测与三维预算防线，而非盲目堆叠模型数量。", "source": "灵机遣记工程手册", "metrics": {"工程关键词": "可观测与熔断"}}
     ]
 }
 
 
-class SearcherAgent(BaseProductionAgent):
-    def __init__(self, budget, model_name: Optional[str] = None):
-        super().__init__("Searcher_Worker", budget, model_name)
+class BaseSearchProvider:
+    """外部检索提供商基类"""
+    def search(self, query: str) -> List[Dict[str, Any]]:
+        raise NotImplementedError
 
-    def _query_search_engine(self, query: str) -> List[Dict[str, Any]]:
-        """模拟调用检索工具或外部知识库"""
+
+class MockSearchProvider(BaseSearchProvider):
+    """离线 Mock 检索器"""
+    def search(self, query: str) -> List[Dict[str, Any]]:
         for k, v in MOCK_SEARCH_KNOWLEDGE.items():
             if k in query:
                 return v
         return MOCK_SEARCH_KNOWLEDGE["通用"]
 
+
+class TavilySearchProvider(BaseSearchProvider):
+    """Tavily 真实网络检索器（需配置 TAVILY_API_KEY）"""
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+
+    def search(self, query: str) -> List[Dict[str, Any]]:
+        try:
+            url = "https://api.tavily.com/search"
+            data = json.dumps({"api_key": self.api_key, "query": query, "max_results": 3}).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                items = []
+                for r in result.get("results", []):
+                    items.append({
+                        "claim": r.get("content", "")[:120],
+                        "source": r.get("title", "Tavily Web Search"),
+                        "metrics": {"url": r.get("url")}
+                    })
+                return items or MOCK_SEARCH_KNOWLEDGE["通用"]
+        except Exception as e:
+            print(f"[WARN] Tavily 检索失败 ({e})，降级为 Mock 检索。")
+            return MockSearchProvider().search(query)
+
+
+def get_search_provider() -> BaseSearchProvider:
+    """根据环境变量配置工厂方法创建检索器"""
+    provider_type = os.getenv("SEARCH_PROVIDER", "mock").strip().lower()
+    tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
+
+    if (provider_type == "tavily" or tavily_key) and tavily_key:
+        return TavilySearchProvider(tavily_key)
+    return MockSearchProvider()
+
+
+class SearcherAgent(BaseProductionAgent):
+    def __init__(self, budget, model_name: Optional[str] = None):
+        super().__init__("Searcher_Worker", budget, model_name)
+        self.search_provider = get_search_provider()
+
     def execute_subtask(self, task: TaskNode, board: EvidenceBoard) -> List[EvidenceCard]:
         """执行单一子任务的检索与事实卡片提炼"""
 
-        # 1. 调用工具检索原始语料
-        raw_items = self._query_search_engine(task.dimension + " " + task.title)
+        # 1. 调用适配器检索原始语料
+        raw_items = self.search_provider.search(task.dimension + " " + task.title)
         raw_text_corpus = "\n".join([f"- [{item['source']}] {item['claim']} (指标: {item['metrics']})" for item in raw_items])
 
         # 2. 注入检测与物理隔离包装 (第 10 篇)

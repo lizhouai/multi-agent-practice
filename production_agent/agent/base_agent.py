@@ -58,31 +58,84 @@ class ProductionLLMClient:
     def _mock_generate(self, system_prompt: str, user_prompt: str) -> Tuple[str, int, int]:
         """内置离线 Mock 逻辑，保证 100% 可用与确定性测试"""
         if "规划专家" in system_prompt or "Planner" in system_prompt:
-            mock_data = {
-                "tasks": [
-                    {"id": "sub-1", "title": "硬件算力与芯片底座架构演进", "dimension": "硬件算力", "focus": ["NPU算力", "制程功耗"]},
-                    {"id": "sub-2", "title": "头部主机厂生态与端侧大模型集成", "dimension": "商业化与生态", "focus": ["微软Copilot+", "苹果Apple Intelligence", "联想AI Now"]},
-                    {"id": "sub-3", "title": "端侧用户体验瓶颈与合规风控边界", "dimension": "合规与挑战", "focus": ["端侧隐私", "杀手级应用缺失", "企业ROI"]}
-                ]
-            }
+            if "电池" in user_prompt or "固态" in user_prompt:
+                mock_data = {
+                    "tasks": [
+                        {"id": "sub-1", "title": "硫化物与聚合物技术路线竞争现状", "dimension": "技术路线", "focus": ["电解质体系", "离子电导率"]},
+                        {"id": "sub-2", "title": "主流车企量产节点与装车验证进度", "dimension": "量产节点", "focus": ["宁德时代", "丰田", "2027年"]},
+                        {"id": "sub-3", "title": "固态界面阻抗与制造成本瓶颈剖析", "dimension": "成本与挑战", "focus": ["生产设备", "良品率", "单Wh成本"]}
+                    ]
+                }
+            elif "低空" in user_prompt or "eVTOL" in user_prompt:
+                mock_data = {
+                    "tasks": [
+                        {"id": "sub-1", "title": "载人飞行器适航审定进度与民航局标准", "dimension": "适航认证", "focus": ["TC认证", "适航规章"]},
+                        {"id": "sub-2", "title": "万亿级低空经济商业市场空间与运营场景测算", "dimension": "市场规模", "focus": ["载人交通", "物流配送", "万亿元"]},
+                        {"id": "sub-3", "title": "起降场基础设施与低空智联网基建短板", "dimension": "基建挑战", "focus": ["起降场", "空域调度", "5G-A通信"]}
+                    ]
+                }
+            else:
+                mock_data = {
+                    "tasks": [
+                        {"id": "sub-1", "title": "硬件算力与芯片底座架构演进", "dimension": "硬件算力", "focus": ["NPU算力", "制程功耗"]},
+                        {"id": "sub-2", "title": "头部主机厂生态与端侧大模型集成", "dimension": "商业化与生态", "focus": ["微软Copilot+", "苹果Apple Intelligence", "联想AI Now"]},
+                        {"id": "sub-3", "title": "端侧用户体验瓶颈与合规风控边界", "dimension": "合规与挑战", "focus": ["端侧隐私", "杀手级应用缺失", "企业ROI"]}
+                    ]
+                }
             return json.dumps(mock_data, ensure_ascii=False), 280, 220
         elif "Searcher" in system_prompt or "事实抽取" in system_prompt:
-            mock_evidences = {
-                "evidences": [
-                    {
-                        "claim": "端侧 NPU 算力在 2026 年突破 45-55 TOPS 门槛，功耗控制在 3.5W 且能效比提升 2.4 倍。",
-                        "source_title": "Semiconductor Digest 2026",
-                        "key_metrics": {"NPU_TOPS": 50, "能效比提升": 2.4},
-                        "confidence": 0.96
-                    },
-                    {
-                        "claim": "系统级端侧大模型常驻占用 7B-10B 显存，企业采购渗透率稳步攀升至 27.8%。",
-                        "source_title": "Enterprise IT Survey",
-                        "key_metrics": {"渗透率": "27.8%", "模型规模": "10B"},
-                        "confidence": 0.92
-                    }
-                ]
-            }
+            # 智能提取：根据输入素材或主题动态生成高保真证据
+            if "电池" in user_prompt or "固态" in user_prompt:
+                mock_evidences = {
+                    "evidences": [
+                        {
+                            "claim": "全固态电池硫化物中试线实测能量密度突破 500 Wh/kg，但电芯生产良品率目前仍低于 65%。",
+                            "source_title": "Global Battery Summit 2026",
+                            "key_metrics": {"能量密度": "500 Wh/kg", "良品率": "65%"},
+                            "confidence": 0.95
+                        },
+                        {
+                            "claim": "行业共识固态电池大规模装车商用节点由最初预期的 2025 年推迟至 2027-2030 年，目前仍以半固态过渡为主。",
+                            "source_title": "EV Battery Industry Roadmap",
+                            "key_metrics": {"量产年份": "2027-2030年", "技术形态": "半固态"},
+                            "confidence": 0.92
+                        }
+                    ]
+                }
+            elif "低空" in user_prompt or "eVTOL" in user_prompt:
+                mock_evidences = {
+                    "evidences": [
+                        {
+                            "claim": "中国民航局已针对多款载人 eVTOL 颁发标准适航认证（TC/AC），推动 1.2万亿元 规模立体出行进入商业试运行。",
+                            "source_title": "Aviation Industry Review 2026",
+                            "key_metrics": {"市场规模": "1.2万亿元", "适航认证": "TC完成"},
+                            "confidence": 0.96
+                        },
+                        {
+                            "claim": "截至 2026 年底全国累计交付及意向订单突破 2500 架，起降场基础设施加速铺设。",
+                            "source_title": "Low Altitude Economy Report",
+                            "key_metrics": {"订单交付": "2500架", "基础设施": "起降场铺设"},
+                            "confidence": 0.94
+                        }
+                    ]
+                }
+            else:
+                mock_evidences = {
+                    "evidences": [
+                        {
+                            "claim": "端侧 NPU 算力在 2026 年突破 45-55 TOPS 门槛，功耗控制在 3.5W 且能效比提升 2.4 倍。",
+                            "source_title": "Semiconductor Digest 2026",
+                            "key_metrics": {"NPU_TOPS": 50, "能效比提升": 2.4},
+                            "confidence": 0.96
+                        },
+                        {
+                            "claim": "系统级端侧大模型常驻占用 7B-10B 显存，企业采购渗透率稳步攀升至 27.8%。",
+                            "source_title": "Enterprise IT Survey",
+                            "key_metrics": {"渗透率": "27.8%", "模型规模": "10B"},
+                            "confidence": 0.92
+                        }
+                    ]
+                }
             return json.dumps(mock_evidences, ensure_ascii=False), 320, 190
         elif "分析" in system_prompt or "Analyst" in system_prompt:
             res = (

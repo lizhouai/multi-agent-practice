@@ -9,6 +9,7 @@ core/trace.py: 全息可观测性与分布式 Trace 级联
 
 import time
 import uuid
+import threading
 from typing import Dict, List, Optional, Any
 from contextlib import contextmanager
 
@@ -87,44 +88,56 @@ class SpanRecord:
 
 
 class Tracer:
-    """全局单例 Tracer：管理全链路 Span 级联与性能指标"""
+    """全局单例 Tracer：管理全链路 Span 级联与性能指标（线程安全）"""
     def __init__(self):
         self.traces: Dict[str, List[SpanRecord]] = {}
         self._current_trace_id: Optional[str] = None
-        self._current_span_stack: List[str] = []
+        self._lock = threading.RLock()
+        self._local = threading.local()
+
+    def _get_local_stack(self) -> List[str]:
+        if not hasattr(self._local, "span_stack"):
+            self._local.span_stack = []
+        return self._local.span_stack
 
     def start_trace(self, trace_id: Optional[str] = None) -> str:
         tid = trace_id or f"tr-{uuid.uuid4().hex[:10]}"
-        self._current_trace_id = tid
-        self.traces[tid] = []
-        self._current_span_stack = []
+        with self._lock:
+            self._current_trace_id = tid
+            self.traces[tid] = []
+        self._get_local_stack().clear()
         return tid
 
     @property
     def current_trace_id(self) -> str:
-        if not self._current_trace_id:
-            return self.start_trace()
-        return self._current_trace_id
+        with self._lock:
+            if not self._current_trace_id:
+                return self.start_trace()
+            return self._current_trace_id
 
     @property
     def current_parent_span_id(self) -> Optional[str]:
-        return self._current_span_stack[-1] if self._current_span_stack else None
+        stack = self._get_local_stack()
+        return stack[-1] if stack else None
 
     @contextmanager
-    def span(self, agent_name: str, action: str):
+    def span(self, agent_name: str, action: str, parent_span_id: Optional[str] = None):
         span_id = f"sp-{uuid.uuid4().hex[:8]}"
         trace_id = self.current_trace_id
-        parent_id = self.current_parent_span_id
+        effective_parent = parent_span_id or self.current_parent_span_id
 
         record = SpanRecord(
             span_id=span_id,
             trace_id=trace_id,
             agent_name=agent_name,
             action=action,
-            parent_span_id=parent_id
+            parent_span_id=effective_parent
         )
-        self.traces[trace_id].append(record)
-        self._current_span_stack.append(span_id)
+        with self._lock:
+            self.traces[trace_id].append(record)
+        
+        stack = self._get_local_stack()
+        stack.append(span_id)
 
         try:
             yield record
@@ -134,12 +147,13 @@ class Tracer:
             record.finish("FAILED", str(e))
             raise e
         finally:
-            if self._current_span_stack and self._current_span_stack[-1] == span_id:
-                self._current_span_stack.pop()
+            if stack and stack[-1] == span_id:
+                stack.pop()
 
     def get_spans(self, trace_id: Optional[str] = None) -> List[SpanRecord]:
         tid = trace_id or self.current_trace_id
-        return self.traces.get(tid, [])
+        with self._lock:
+            return list(self.traces.get(tid, []))
 
     def print_trace_summary(self, trace_id: Optional[str] = None):
         """打印全息可观测调用树与成本归因表格"""

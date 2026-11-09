@@ -9,6 +9,7 @@ core/budget.py: 三维预算熔断器与成本核算引擎
 
 import time
 import os
+import threading
 from typing import Dict, Any, Optional
 
 
@@ -22,7 +23,7 @@ class BudgetExceededException(Exception):
 
 
 class BudgetController:
-    """单任务三维预算控制器"""
+    """单任务三维预算控制器（线程安全）"""
     def __init__(
         self,
         max_tokens: Optional[int] = None,
@@ -38,6 +39,7 @@ class BudgetController:
         self.current_tokens = 0
         self.agent_token_breakdown: Dict[str, int] = {}
         self.is_circuit_broken = False
+        self._lock = threading.Lock()
 
     def check_clock_time(self):
         """挂钟时延维度熔断校验"""
@@ -53,41 +55,44 @@ class BudgetController:
 
     def record_step(self, step_name: str):
         """执行步数维度熔断校验"""
-        self.check_clock_time()
-        self.current_steps += 1
-        if self.current_steps > self.max_steps:
-            self.is_circuit_broken = True
-            raise BudgetExceededException(
-                dimension="执行步数",
-                current=self.current_steps,
-                threshold=self.max_steps,
-                message=f"调用步数已达 {self.current_steps} 步，超过安全上限 {self.max_steps}，疑似陷入死循环！"
-            )
+        with self._lock:
+            self.check_clock_time()
+            self.current_steps += 1
+            if self.current_steps > self.max_steps:
+                self.is_circuit_broken = True
+                raise BudgetExceededException(
+                    dimension="执行步数",
+                    current=self.current_steps,
+                    threshold=self.max_steps,
+                    message=f"调用步数已达 {self.current_steps} 步，超过安全上限 {self.max_steps}，疑似陷入死循环！"
+                )
 
     def record_tokens(self, agent_name: str, tokens: int):
         """Token 开销维度熔断校验"""
-        self.check_clock_time()
-        self.current_tokens += tokens
-        self.agent_token_breakdown[agent_name] = self.agent_token_breakdown.get(agent_name, 0) + tokens
+        with self._lock:
+            self.check_clock_time()
+            self.current_tokens += tokens
+            self.agent_token_breakdown[agent_name] = self.agent_token_breakdown.get(agent_name, 0) + tokens
 
-        if self.current_tokens > self.max_tokens:
-            self.is_circuit_broken = True
-            raise BudgetExceededException(
-                dimension="Token消耗",
-                current=self.current_tokens,
-                threshold=self.max_tokens,
-                message=f"全局累计 Token 达到 {self.current_tokens}，超过任务预算 {self.max_tokens}，切断执行！"
-            )
+            if self.current_tokens > self.max_tokens:
+                self.is_circuit_broken = True
+                raise BudgetExceededException(
+                    dimension="Token消耗",
+                    current=self.current_tokens,
+                    threshold=self.max_tokens,
+                    message=f"全局累计 Token 达到 {self.current_tokens}，超过任务预算 {self.max_tokens}，切断执行！"
+                )
 
     def get_summary(self) -> Dict[str, Any]:
-        elapsed = time.time() - self.start_time
-        return {
-            "elapsed_seconds": round(elapsed, 2),
-            "max_seconds_limit": self.max_seconds,
-            "total_steps": self.current_steps,
-            "max_steps_limit": self.max_steps,
-            "total_tokens": self.current_tokens,
-            "max_tokens_limit": self.max_tokens,
-            "is_broken": self.is_circuit_broken,
-            "token_breakdown": self.agent_token_breakdown
-        }
+        with self._lock:
+            elapsed = time.time() - self.start_time
+            return {
+                "elapsed_seconds": round(elapsed, 2),
+                "max_seconds_limit": self.max_seconds,
+                "total_steps": self.current_steps,
+                "max_steps_limit": self.max_steps,
+                "total_tokens": self.current_tokens,
+                "max_tokens_limit": self.max_tokens,
+                "is_broken": self.is_circuit_broken,
+                "token_breakdown": dict(self.agent_token_breakdown)
+            }

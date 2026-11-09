@@ -47,7 +47,7 @@
 | 章节与推文主题 | 解决的工程痛点 | `production_agent` 核心代码映射 |
 | :--- | :--- | :--- |
 | **第 001 篇·单个 Agent 的天花板** | 什么时候才真的需要多 Agent？拆分的第一性原理与检查清单 | `mini_agent/mini_agent.py`<br>`core/topology.py`（单 Agent vs 多 Agent 分流） |
-| **第 002 篇·三种真正有效的分工方式** | 拒绝角色扮演虚假拆分；按能力域与数据/权限域做物理隔离 | `agent/searcher.py`<br>`agent/analyst.py`<br>`core/security.py` |
+| **第 002 篇·三种真正有效的分工方式** | 拒绝角色扮演虚假拆分；按能力域与数据/权限域做物理隔离 | `agent/search_agent.py`<br>`agent/doc_query_agent.py`<br>`agent/analyst_agent.py`<br>`core/security.py` |
 | **第 003 篇·编排拓扑到底怎么选** | 控制流放在哪？Pipeline / Router / Supervisor / 对等 Handoff | `core/topology.py`（四大拓扑控制器统一抽象） |
 | **第 004 篇·契约交付：把自然语言封进 schema** | 跨 Agent 传递信息拒绝模糊自然语言；强类型交接与回执 | `core/schema.py`（`HandoffPacket` / `HandoffReceipt`） |
 | **第 005 篇·上下文隔离与汇总** | 拆了之后为什么反而更糊涂？Fan-in 汇总时如何守住证据链 | `core/context.py`（上下文沙箱与证据卡片提取） |
