@@ -10,7 +10,10 @@ langgraph_agent/state.py: LangGraph 强类型图状态与自定义 Reducer
 import time
 from typing import List, Dict, Any, Optional
 from typing_extensions import TypedDict, Annotated
-from core.schema import EvidenceCard, TaskNode, TaskStatus
+try:
+    from production_agent.core.schema import EvidenceCard, TaskNode, TaskStatus
+except (ImportError, ModuleNotFoundError):
+    from core.schema import EvidenceCard, TaskNode, TaskStatus
 
 
 def evidence_reducer(

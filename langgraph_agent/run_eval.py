@@ -29,8 +29,12 @@ sys.path.insert(0, os.path.join(ROOT_DIR, "production_agent"))
 
 from langgraph.types import Command
 from langgraph.checkpoint.memory import MemorySaver
-from core.state import EvidenceBoard
-from eval.evaluator import MultiAgentHopEvaluator
+try:
+    from production_agent.core.state import EvidenceBoard
+    from production_agent.eval.evaluator import MultiAgentHopEvaluator
+except (ImportError, ModuleNotFoundError):
+    from core.state import EvidenceBoard
+    from eval.evaluator import MultiAgentHopEvaluator
 from langgraph_agent.graph import build_research_graph
 
 try:

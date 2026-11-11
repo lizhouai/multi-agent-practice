@@ -16,7 +16,7 @@ from typing import List, Dict, Any, Optional
 from core.schema import TaskNode, EvidenceCard
 from core.state import EvidenceBoard
 from core.context import ContextFirewall
-from agent.base_agent import BaseProductionAgent
+from agent.base_agent import BaseProductionAgent, extract_json_string
 
 
 # 预置本地高保真模拟检索知识库（支持全主题黄金测试集离线稳定运行）
@@ -98,8 +98,8 @@ def get_search_provider() -> BaseSearchProvider:
 
 
 class SearcherAgent(BaseProductionAgent):
-    def __init__(self, budget, model_name: Optional[str] = None):
-        super().__init__("Searcher_Worker", budget, model_name)
+    def __init__(self, budget, model_name: Optional[str] = None, role_name: Optional[str] = None):
+        super().__init__(role_name or "Searcher_Worker", budget, model_name)
         self.search_provider = get_search_provider()
 
     def execute_subtask(self, task: TaskNode, board: EvidenceBoard) -> List[EvidenceCard]:
@@ -145,7 +145,7 @@ class SearcherAgent(BaseProductionAgent):
         # 4. 解析并组装 EvidenceCard，写入 EvidenceBoard
         evidence_cards: List[EvidenceCard] = []
         try:
-            cleaned = raw_json.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            cleaned = extract_json_string(raw_json)
             data = json.loads(cleaned)
             for ev in data.get("evidences", []):
                 card = EvidenceCard(

@@ -4,7 +4,7 @@ production_agent/agent: 深度调研系统各角色智能体实现
 包含 Planner, Searcher, DocQuery, Analyst, FactChecker, Writer 及 BaseAgent。
 """
 
-from agent.base_agent import BaseProductionAgent, ProductionLLMClient
+from agent.base_agent import BaseProductionAgent, ProductionLLMClient, load_project_env, extract_json_string
 from agent.planner_agent import PlannerAgent
 from agent.search_agent import SearcherAgent
 from agent.doc_query_agent import DocQueryAgent
@@ -15,6 +15,8 @@ from agent.writer_agent import WriterAgent
 __all__ = [
     "BaseProductionAgent",
     "ProductionLLMClient",
+    "load_project_env",
+    "extract_json_string",
     "PlannerAgent",
     "SearcherAgent",
     "DocQueryAgent",

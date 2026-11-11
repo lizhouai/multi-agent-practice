@@ -30,9 +30,9 @@ class BudgetController:
         max_steps: Optional[int] = None,
         max_seconds: Optional[float] = None
     ):
-        self.max_tokens = max_tokens or int(os.getenv("BUDGET_MAX_TOKENS_PER_TASK", "60000"))
+        self.max_tokens = max_tokens or int(os.getenv("BUDGET_MAX_TOKENS_PER_TASK", "100000"))
         self.max_steps = max_steps or int(os.getenv("BUDGET_MAX_STEPS_PER_TASK", "15"))
-        self.max_seconds = max_seconds or float(os.getenv("BUDGET_MAX_SECONDS_PER_TASK", "120.0"))
+        self.max_seconds = max_seconds or float(os.getenv("BUDGET_MAX_SECONDS_PER_TASK", "300.0"))
 
         self.start_time = time.time()
         self.current_steps = 0

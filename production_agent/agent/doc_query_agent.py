@@ -70,8 +70,8 @@ INTERNAL_ENTERPRISE_KNOWLEDGE_BASE = {
 
 class DocQueryAgent(BaseProductionAgent):
     """私有企业资料库检索智能体（高信任度、高隔离内网数据源）"""
-    def __init__(self, budget, model_name: Optional[str] = None):
-        super().__init__("Internal_DocQuery_Worker", budget, model_name)
+    def __init__(self, budget, model_name: Optional[str] = None, role_name: Optional[str] = None):
+        super().__init__(role_name or "Internal_DocQuery_Worker", budget, model_name)
 
     def _query_internal_corpus(self, query: str) -> List[Dict[str, Any]]:
         """模拟向量检索内部私有知识库"""
@@ -100,6 +100,7 @@ class DocQueryAgent(BaseProductionAgent):
         # 记录 Trace Span
         from core.trace import global_tracer
         with global_tracer.span(self.role_name, f"检索私有企业资料库[{task.id}]") as span:
+            span.metadata["engine"] = "INTERNAL_KB"
             span.metadata["internal_records"] = len(raw_items)
 
         return evidence_cards

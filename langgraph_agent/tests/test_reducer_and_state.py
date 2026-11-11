@@ -3,7 +3,10 @@
 langgraph_agent/tests/test_reducer_and_state.py: 状态机 Reducer 单元测试
 """
 
-from core.schema import EvidenceCard, TaskNode, TaskStatus
+try:
+    from production_agent.core.schema import EvidenceCard, TaskNode, TaskStatus
+except (ImportError, ModuleNotFoundError):
+    from core.schema import EvidenceCard, TaskNode, TaskStatus
 from langgraph_agent.state import evidence_reducer, tasks_reducer, audit_log_reducer
 
 

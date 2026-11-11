@@ -8,6 +8,7 @@ eval/ablation.py: 单 Agent vs 多 Agent 科学消融实验
 帮助架构师在模型升级时决定“何时该扩容，何时该坚决退回单 Agent”。
 """
 
+import os
 import time
 from typing import Dict, Any
 from core.trace import global_tracer
@@ -54,6 +55,21 @@ class AblationExperiment:
         has_metrics = ("%" in resp_text) or ("TOPS" in resp_text) or ("Wh/kg" in resp_text)
         evidence_score = 75.0 if has_metrics else 50.0
 
+        # 保存单 Agent 生成报告至磁盘供查阅对比
+        proj_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        report_file = os.path.join(proj_dir, "ablation_single_agent_report.md")
+        try:
+            with open(report_file, "w", encoding="utf-8") as f:
+                f.write(f"# 【消融实验 - 方案 A】单 Agent 调研基线报告\n\n")
+                f.write(f"> **调研主题**：《{topic}》  \n")
+                f.write(f"> **生成时间**：{time.strftime('%Y-%m-%d %H:%M:%S')}  \n")
+                f.write(f"> **耗时**：{elapsed:.2f}s | **消耗 Token**：{total_tok} | **预估成本**：${cost:.5f}  \n")
+                f.write(f"> **架构特点**：单一 Prompt 粗暴硬塞所有任务，无 DAG 规划、无并发检索分工、无独立核查与状态机。  \n\n")
+                f.write("---\n\n")
+                f.write(resp_text.strip() + "\n")
+        except Exception as e:
+            print(f"[WARN] 保存单 Agent 报告失败: {e}")
+
         return {
             "mode": "单 Agent 基线 (Single Agent)",
             "elapsed_seconds": round(elapsed, 2),
@@ -61,7 +77,9 @@ class AblationExperiment:
             "cost_usd": round(cost, 6),
             "evidence_score": evidence_score,
             "isolated_sandbox": False,
-            "trace_hops": 1
+            "trace_hops": 1,
+            "report_file": report_file,
+            "report_content": resp_text
         }
 
     @classmethod
@@ -93,7 +111,7 @@ class AblationExperiment:
 
         # 5. Writer
         writer = WriterAgent(budget)
-        writer.compile_final_report(board, synthesis, "审核通过")
+        multi_report = writer.compile_final_report(board, synthesis, "审核通过")
 
         elapsed = time.time() - start_t
         eval_report = MultiAgentHopEvaluator.evaluate_board_lifecycle(board)
@@ -102,6 +120,21 @@ class AblationExperiment:
         total_tok = sum(s.prompt_tokens + s.completion_tokens for s in spans)
         total_cost = sum(s.cost_usd for s in spans)
 
+        # 保存多 Agent 生成报告至磁盘供查阅对比
+        proj_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        report_file = os.path.join(proj_dir, "ablation_multi_agent_report.md")
+        try:
+            with open(report_file, "w", encoding="utf-8") as f:
+                f.write(f"# 【消融实验 - 方案 B】多 Agent 生产拓扑深度研报\n\n")
+                f.write(f"> **调研主题**：《{topic}》  \n")
+                f.write(f"> **生成时间**：{time.strftime('%Y-%m-%d %H:%M:%S')}  \n")
+                f.write(f"> **耗时**：{elapsed:.2f}s | **消耗 Token**：{total_tok} | **预估成本**：${total_cost:.5f}  \n")
+                f.write(f"> **架构特点**：Supervisor DAG 分工 -> 多路 Worker 检索 -> 事实卡片汇聚 -> 交叉比对 -> 异构独立核查 -> 排版归档。  \n\n")
+                f.write("---\n\n")
+                f.write(multi_report.strip() + "\n")
+        except Exception as e:
+            print(f"[WARN] 保存多 Agent 报告失败: {e}")
+
         return {
             "mode": "多 Agent 生产拓扑 (Multi-Agent)",
             "elapsed_seconds": round(elapsed, 2),
@@ -109,7 +142,9 @@ class AblationExperiment:
             "cost_usd": round(total_cost, 6),
             "evidence_score": eval_report["overall_score"],
             "isolated_sandbox": True,
-            "trace_hops": len(spans)
+            "trace_hops": len(spans),
+            "report_file": report_file,
+            "report_content": multi_report
         }
 
     @classmethod
@@ -153,6 +188,10 @@ class AblationExperiment:
                 console.print(f"👉 当前准确率显著提升 (+{score_diff:.1f}分)，且具备安全与归因需求，[bold green]推荐保持多 Agent 拓扑[/bold green]！")
             else:
                 console.print(f"👉 准确率提升不明显 (+{score_diff:.1f}分)，但 Token 增加了 {tok_mult:.1f} 倍。若底座模型升级，[bold red]建议坚决考虑退回单 Agent 或轻量 Subagent[/bold red]！\n")
+
+            console.print(f"[bold cyan]📄 产物对比归档：[/bold cyan]")
+            console.print(f"   - 方案 A (单 Agent 基线报告) : [underline]{res_single['report_file']}[/underline]")
+            console.print(f"   - 方案 B (多 Agent 拓扑研报) : [underline]{res_multi['report_file']}[/underline]\n")
         else:
             print("================ 消融实验对比账本 ================")
             print(f"指标            | 单 Agent 基线 | 多 Agent 拓扑 | 差异")
@@ -160,3 +199,5 @@ class AblationExperiment:
             print(f"总 Token        | {res_single['total_tokens']}         | {res_multi['total_tokens']}         | {tok_mult:.1f}x")
             print(f"准确度得分      | {res_single['evidence_score']}          | {res_multi['evidence_score']}          | +{score_diff:.1f}分")
             print("==================================================")
+            print(f"方案 A (单 Agent) 报告: {res_single['report_file']}")
+            print(f"方案 B (多 Agent) 报告: {res_multi['report_file']}\n")

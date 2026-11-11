@@ -7,6 +7,7 @@ core/trace.py: 全息可观测性与分布式 Trace 级联
 并支持在控制台直接输出美观的彩色调用链调用树（使用 rich 或 ASCII）。
 """
 
+import sys
 import time
 import uuid
 import threading
@@ -27,9 +28,25 @@ MODEL_PRICE_PER_1K = {
     "default": {"prompt": 0.0005, "completion": 0.0015},
     "gpt-4o-mini": {"prompt": 0.00015, "completion": 0.0006},
     "gpt-4o": {"prompt": 0.0025, "completion": 0.01},
+    "qwen-plus": {"prompt": 0.0008, "completion": 0.002},
+    "qwen-turbo": {"prompt": 0.0003, "completion": 0.0006},
     "deepseek-chat": {"prompt": 0.00014, "completion": 0.00028},
+    "deepseek-flash": {"prompt": 0.00014, "completion": 0.00028},
+    "deepseek-v3": {"prompt": 0.00014, "completion": 0.00028},
     "deepseek-reasoner": {"prompt": 0.00055, "completion": 0.00219},
+    "deepseek-r1": {"prompt": 0.00055, "completion": 0.00219},
 }
+
+
+def get_model_price(model_name: Optional[str]) -> Dict[str, float]:
+    """智能匹配模型计费单价（支持前缀、包含与大小写不敏感模糊匹配）"""
+    m = (model_name or "default").lower().strip()
+    if m in MODEL_PRICE_PER_1K:
+        return MODEL_PRICE_PER_1K[m]
+    for k, v in MODEL_PRICE_PER_1K.items():
+        if k != "default" and (k in m or m in k):
+            return v
+    return MODEL_PRICE_PER_1K["default"]
 
 
 class SpanRecord:
@@ -65,7 +82,7 @@ class SpanRecord:
     def add_tokens(self, prompt_tokens: int, completion_tokens: int, model_name: str = "default"):
         self.prompt_tokens += prompt_tokens
         self.completion_tokens += completion_tokens
-        price = MODEL_PRICE_PER_1K.get(model_name, MODEL_PRICE_PER_1K["default"])
+        price = get_model_price(model_name)
         call_cost = (prompt_tokens / 1000.0 * price["prompt"]) + (completion_tokens / 1000.0 * price["completion"])
         self.cost_usd += call_cost
 
@@ -177,7 +194,19 @@ class Tracer:
             tree_nodes = {}
 
             for s in spans:
-                label = f"[bold green]{s.agent_name}[/bold green] -> [white]{s.action}[/white] | [dim]{s.duration_seconds:.2f}s | {s.prompt_tokens + s.completion_tokens} Tok | ${s.cost_usd:.5f}[/dim]"
+                engine_tag = ""
+                engine = s.metadata.get("engine", "")
+                model = s.metadata.get("model", "")
+                if engine == "REAL_LLM":
+                    engine_tag = f" [bold green][REAL_LLM: {model}][/bold green]"
+                elif engine == "OFFLINE_MOCK":
+                    engine_tag = " [yellow][OFFLINE_MOCK][/yellow]"
+                elif s.metadata.get("is_mock"):
+                    engine_tag = " [yellow][MOCK][/yellow]"
+                elif s.prompt_tokens + s.completion_tokens > 0:
+                    engine_tag = f" [dim][{model or 'LLM'}][/dim]"
+
+                label = f"[bold green]{s.agent_name}[/bold green] -> [white]{s.action}[/white]{engine_tag} | [dim]{s.duration_seconds:.2f}s | {s.prompt_tokens + s.completion_tokens} Tok | ${s.cost_usd:.5f}[/dim]"
                 if s.status != "SUCCESS":
                     label += f" [bold red]({s.status}: {s.error_message or ''})[/bold red]"
                 
@@ -195,6 +224,7 @@ class Tracer:
             table = Table(title="Agent 节点成本与资源归因看板 (Cost Attribution)")
             table.add_column("Agent 节点", style="cyan")
             table.add_column("调用动作", style="magenta")
+            table.add_column("引擎 / 模型", style="blue")
             table.add_column("耗时 (s)", justify="right")
             table.add_column("Token 占比", justify="right")
             table.add_column("预估开销 (USD)", justify="right", style="green")
@@ -204,7 +234,29 @@ class Tracer:
                 tok = s.prompt_tokens + s.completion_tokens
                 pct = f"{(tok / total_tokens * 100):.1f}%" if total_tokens > 0 else "0%"
                 status_style = "[green]SUCCESS[/green]" if s.status == "SUCCESS" else f"[red]{s.status}[/red]"
-                table.add_row(s.agent_name, s.action, f"{s.duration_seconds:.2f}", f"{tok} ({pct})", f"${s.cost_usd:.5f}", status_style)
+                
+                engine = s.metadata.get("engine", "OFFLINE_MOCK" if s.metadata.get("is_mock") else ("REAL_LLM" if s.metadata.get("model") else "-"))
+                model = s.metadata.get("model", "")
+                if engine == "REAL_LLM":
+                    engine_col = f"[green]REAL_LLM[/green] ({model})"
+                elif engine == "OFFLINE_MOCK":
+                    engine_col = f"[yellow]OFFLINE_MOCK[/yellow]"
+                elif engine == "INTERNAL_KB":
+                    engine_col = f"[cyan]INTERNAL_KB[/cyan] (私有库)"
+                elif engine == "LOCAL_RULE":
+                    engine_col = f"[dim]LOCAL_RULE[/dim]"
+                else:
+                    engine_col = f"[dim]{engine}[/dim]" if engine != "-" else "-"
+
+                table.add_row(
+                    s.agent_name,
+                    s.action,
+                    engine_col,
+                    f"{s.duration_seconds:.2f}",
+                    f"{tok} ({pct})",
+                    f"${s.cost_usd:.5f}",
+                    status_style
+                )
 
             console.print(table)
             console.print(f"[bold cyan]═══════════════════════════════════════════════════════════════════════[/bold cyan]\n")
@@ -213,9 +265,17 @@ class Tracer:
             print(f"\n==================== Trace: {tid} ====================")
             print(f"端到端耗时: {total_latency:.2f}s | 总 Token: {total_tokens} | 预估开销: ${total_cost:.5f}")
             for s in spans:
-                print(f"  [{s.status}] {s.agent_name} -> {s.action} | 耗时: {s.duration_seconds:.2f}s | Token: {s.prompt_tokens + s.completion_tokens} | ${s.cost_usd:.5f}")
+                eng = s.metadata.get("engine", "MOCK" if s.metadata.get("is_mock") else "-")
+                mod = s.metadata.get("model", "")
+                eng_info = f"[{eng}:{mod}]" if mod else f"[{eng}]"
+                print(f"  [{s.status}] {eng_info} {s.agent_name} -> {s.action} | 耗时: {s.duration_seconds:.2f}s | Token: {s.prompt_tokens + s.completion_tokens} | ${s.cost_usd:.5f}")
             print("========================================================\n")
 
 
-# 全局单例
-global_tracer = Tracer()
+# 全局单例（进程级唯一单例，抵抗跨模块别名重复导入）
+_existing_tracer = getattr(sys, "_production_global_tracer", None)
+if _existing_tracer is not None:
+    global_tracer = _existing_tracer
+else:
+    global_tracer = Tracer()
+    sys._production_global_tracer = global_tracer

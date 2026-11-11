@@ -11,12 +11,12 @@ import json
 from typing import List, Optional
 from core.schema import TaskNode, TaskStatus
 from core.resilience import SelfHealingRetry
-from agent.base_agent import BaseProductionAgent
+from agent.base_agent import BaseProductionAgent, extract_json_string
 
 
 class PlannerAgent(BaseProductionAgent):
-    def __init__(self, budget, model_name: Optional[str] = None):
-        super().__init__("Supervisor_Planner", budget, model_name)
+    def __init__(self, budget, model_name: Optional[str] = None, role_name: Optional[str] = None):
+        super().__init__(role_name or "Supervisor_Planner", budget, model_name)
 
     def plan_research_dag(self, goal: str) -> List[TaskNode]:
         """将用户目标拆解为 3 个正交的子任务节点，集成自愈重试能力"""
@@ -42,7 +42,7 @@ class PlannerAgent(BaseProductionAgent):
 
         def _validator(raw_text: str):
             try:
-                cleaned = raw_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                cleaned = extract_json_string(raw_text)
                 data = json.loads(cleaned)
                 tasks = data.get("tasks", [])
                 if len(tasks) < 2:
@@ -56,11 +56,16 @@ class PlannerAgent(BaseProductionAgent):
 
         # 触发带反馈的自愈重试
         valid_raw = SelfHealingRetry.retry_with_feedback(_generator, _validator, max_attempts=3)
-        cleaned = valid_raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        cleaned = extract_json_string(valid_raw)
         data = json.loads(cleaned)
 
+        raw_tasks = data.get("tasks", [])
+        # 精炼为主干子任务（通常为 3 个），防止子任务爆炸超出步数与 Token 预算
+        if len(raw_tasks) > 4:
+            raw_tasks = raw_tasks[:3]
+
         task_nodes: List[TaskNode] = []
-        for t in data["tasks"]:
+        for t in raw_tasks:
             task_nodes.append(TaskNode(
                 id=t["id"],
                 title=t["title"],

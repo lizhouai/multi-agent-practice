@@ -26,6 +26,7 @@ from core.trace import global_tracer
 from core.budget import BudgetController
 from core.state import EvidenceBoard
 from core.schema import TaskStatus
+from agent.base_agent import ProductionLLMClient, load_project_env
 from agent.planner_agent import PlannerAgent
 from agent.search_agent import SearcherAgent
 from agent.doc_query_agent import DocQueryAgent
@@ -53,8 +54,15 @@ def run_batch_evaluation():
             if line.strip():
                 cases.append(json.loads(line.strip()))
 
+    diag_llm = ProductionLLMClient()
     print(f"\n================================================================================")
     print(f"🎯 [Multi-Agent Evaluator] 开始执行黄金回归测试集评测 (共 {len(cases)} 个用例)")
+    print(f"--------------------------------------------------------------------------------")
+    print(f"🛠️ [运行环境与模型诊断看板]:")
+    print(f"   - 评测引擎模式 : {'🟢 REAL_LLM (实测联网调用)' if not diag_llm.is_mock else '🟡 OFFLINE_MOCK (离线基线仿真)'}")
+    print(f"   - 默认模型名称 : {diag_llm.model}")
+    print(f"   - API Key 状态 : {diag_llm.masked_api_key}")
+    print(f"   - 配置文件来源 : {diag_llm.loaded_env_path or '未找到 .env 文件'}")
     print(f"================================================================================\n")
 
     summary_rows = []

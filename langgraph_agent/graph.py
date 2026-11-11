@@ -14,6 +14,24 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 from langgraph.checkpoint.memory import MemorySaver
 
+def create_safe_checkpointer() -> MemorySaver:
+    """创建已登记业务契约白名单的安全持久化 Checkpointer，杜绝 msgpack 未注册类型告警"""
+    try:
+        from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+        safe_serde = JsonPlusSerializer(
+            allowed_msgpack_modules=[
+                ("production_agent.core.schema", "TaskStatus"),
+                ("production_agent.core.schema", "TaskNode"),
+                ("production_agent.core.schema", "EvidenceCard"),
+                ("core.schema", "TaskStatus"),
+                ("core.schema", "TaskNode"),
+                ("core.schema", "EvidenceCard"),
+            ]
+        )
+        return MemorySaver(serde=safe_serde)
+    except Exception:
+        return MemorySaver()
+
 from langgraph_agent.state import ResearchGraphState
 from langgraph_agent.nodes import (
     planner_node,
@@ -51,16 +69,23 @@ def route_after_fact_check(
     """
     passed = state.get("fact_check_passed", True)
     attempts = state.get("fact_check_attempts", 0)
+    critique = state.get("fact_check_critique") or "未提供具体批语"
 
     if passed:
+        print(f"\n✅ [LangGraph 事实核查通过] 交叉结论与原始证据卡片一致，放行至 Writer 汇编阶段。\n")
         return "writer"
 
     # 若未通过但未超过最大重试上限，回溯打回重试
     if attempts < 2:
-        print(f"\n⚠️ [LangGraph 反思自愈环路] 事实核查未通过 (第 {attempts} 次)，条件边打回 Analyst 重新修正分析！")
+        print(f"\n⚠️ [LangGraph 反思自愈环路] 事实核查未通过 (第 {attempts} 次)！")
+        print(f"   🚨【FactChecker 驳回原因与审查批语】:")
+        print(f"      {critique.strip()}")
+        print(f"   🔄 条件边触发反思回溯：打回 Analyst 智能体，携带审查批语重新交叉比对与因果修正...\n")
         return "analyst"
 
-    print(f"\n⚠️ [LangGraph 降级容错] 达到最大核查重试上限 ({attempts}次)，带警告强行推进至报告阶段。")
+    print(f"\n⚠️ [LangGraph 降级容错] 达到最大核查重试上限 ({attempts}次)！")
+    print(f"   🚨【终审残留警告批语】: {critique.strip()}")
+    print(f"   ⚡ 触发系统降级容错机制：向 Chief Writer 注入审计警告批语，强行推进至报告阶段。\n")
     return "writer"
 
 
@@ -107,5 +132,5 @@ def build_research_graph(checkpointer=None) -> Any:
     builder.add_edge("writer", END)
 
     # 3. 挂载持久化检查点机制 (Checkpointer)
-    saver = checkpointer or MemorySaver()
+    saver = checkpointer or create_safe_checkpointer()
     return builder.compile(checkpointer=saver)

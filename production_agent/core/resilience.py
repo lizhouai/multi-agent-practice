@@ -89,7 +89,8 @@ class CrossValidator:
 
         try:
             import json
-            cleaned = raw_res.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            from agent.base_agent import extract_json_string
+            cleaned = extract_json_string(raw_res)
             data = json.loads(cleaned)
             return data.get("pass", False), data.get("critique", "核查完成")
         except Exception:

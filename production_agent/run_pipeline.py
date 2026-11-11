@@ -25,10 +25,10 @@ from typing import Optional, List
 # 确保能正确引入内部模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# 统一修复 Windows 控制台中文编码
+# 统一修复 Windows 控制台中文编码与行缓冲
 if hasattr(sys.stdout, "reconfigure"):
     try:
-        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
     except Exception:
         pass
 
@@ -37,6 +37,7 @@ from core.budget import BudgetController
 from core.state import EvidenceBoard
 from core.schema import TaskStatus, TaskNode
 from core.topology import SupervisorTopology
+from agent.base_agent import ProductionLLMClient, load_project_env
 from agent.planner_agent import PlannerAgent
 from agent.search_agent import SearcherAgent
 from agent.doc_query_agent import DocQueryAgent
@@ -49,23 +50,39 @@ def run_production_deep_research(
     topic: str,
     output_file: str = "production_report.md",
     resume_checkpoint: Optional[str] = None,
-    parallel: bool = True
+    parallel: bool = True,
+    timeout: Optional[float] = None
 ):
     global_start_time = time.time()
     
-    # 1. 启动全局可观测 Trace 与三维预算熔断器
+    # 1. 启动全局可观测 Trace、三维预算熔断器，并采样探测 LLM 运行引擎状态
     trace_id = global_tracer.start_trace()
-    budget = BudgetController()
+    budget = BudgetController(max_seconds=timeout)
+    diag_llm = ProductionLLMClient()
     
     print("\n================================================================================")
-    print(f"🚀 [Production DeepResearch] 启动工业级多智能体系统")
+    print("🚀 [Production DeepResearch] 启动工业级多智能体深度调研系统")
+    print("================================================================================")
+    print(f"   - 调研主题: 《{topic}》")
     if resume_checkpoint:
         print(f"   - 运行模式: 🔄 断点续跑 (从快照恢复: {resume_checkpoint})")
-    else:
-        print(f"   - 调研主题: 《{topic}》")
     print(f"   - Trace ID: {trace_id}")
-    print(f"   - 并发模式: {'⚡ 多线程并发 (Fan-out)' if parallel else '串行推进'}")
-    print(f"   - 预算配额: 最大 {budget.max_tokens} Tokens | 最大 {budget.max_steps} 步 | 最长 {budget.max_seconds}s")
+    print(f"   - 并发策略: {'⚡ 多线程并发 (Fan-out 4路)' if parallel else '串行推进'}")
+    print(f"   - 预算配额: 最大 {budget.max_tokens:,} Tokens | 最大 {budget.max_steps} 步 | 最长 {budget.max_seconds}s")
+    print("--------------------------------------------------------------------------------")
+    print("🛠️ [运行环境与模型诊断看板]:")
+    if not diag_llm.is_mock:
+        print(f"   - 运行引擎模式 : 🟢 [REAL_LLM 真实大模型联网调用模式]")
+        print(f"   - 配置文件来源 : {diag_llm.loaded_env_path or '环境变量 / 系统环境 (未检测到 .env 物理文件)'}")
+        print(f"   - 默认模型名称 : {diag_llm.model}")
+        print(f"   - API 端点地址 : {diag_llm.base_url}")
+        print(f"   - API Key 状态 : {diag_llm.masked_api_key} (有效长度: {len(diag_llm.api_key)})")
+    else:
+        print(f"   - 运行引擎模式 : 🟡 [OFFLINE_MOCK 离线模拟演示模式]")
+        print(f"   - 离线降级原因 : {diag_llm.mock_reason}")
+        print(f"   - 配置文件状态 : {diag_llm.loaded_env_path or '未找到有效 .env 配置文件'}")
+        print(f"   - API Key 状态 : {diag_llm.masked_api_key}")
+        print(f"   - 快速指引     : 若需调用真实大模型，请在 production_agent/.env 中配置 OPENAI_API_KEY")
     print("================================================================================\n")
 
     # 2. 初始化或恢复集中式单一真相黑板
@@ -202,12 +219,28 @@ def main():
         action="store_true",
         help="禁用多线程并发，切为串行执行模式"
     )
+    parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="强制使用内置离线 Mock 模式（忽略 .env 中的 API Key 配置）"
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="最大挂钟执行时间上限（秒，默认从 .env 或 300.0s 读取）"
+    )
     args = parser.parse_args()
+
+    if args.mock:
+        os.environ["FORCE_MOCK"] = "1"
+
     run_production_deep_research(
         topic=args.topic,
         output_file=args.output,
         resume_checkpoint=args.resume,
-        parallel=not args.no_parallel
+        parallel=not args.no_parallel,
+        timeout=args.timeout
     )
 
 
