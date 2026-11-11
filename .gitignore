@@ -1,14 +1,13 @@
-# Python
+# ==============================================================================
+# multi-agent-practice .gitignore
+# ==============================================================================
+
+# Python Bytecode & Artifacts
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
-.venv/
-.pyenv/
-ENV/
 build/
 develop-eggs/
 dist/
@@ -25,25 +24,47 @@ wheels/
 .installed.cfg
 *.egg
 
-# Environment Variables & Keys
+# Virtual Environments
+.pyenv/
+.venv/
+env/
+venv/
+ENV/
+
+# Environment Variables & Private Secrets
 .env
 .env.local
+.env.*.local
+!.env.example
+!**/.env.example
 
-# IDE
+# IDE & Editor Settings
 .vscode/
 .idea/
 *.swp
 *.swo
+.project
+.pydevproject
+.settings/
 
-# Project logs & run checkpoints & caches
+# OS Specific
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime Logs, Checkpoints & Caches
 *.log
 checkpoints/
-outputs/
 .cache/
-.pytest_cache/
+.codegraph
+*.tmp
+*.sqlite
+*.db
 
-# Generated output reports
-mini_report.md
-production_report.md
-battery_report.md
-
+# Temporary scratch & improvements
+IMPROVEMENTS.md
